@@ -1,6 +1,6 @@
-import decodeAudioModule from '../wasm/decode-audio';
-import { DecodeAudioOptions } from './types';
-import { readBuffer } from './utils';
+import decodeAudioModule from "../wasm/decode-audio";
+import { DecodeAudioOptions } from "./types";
+import { readBuffer } from "./utils";
 
 /**
  * Creates an AudioDecoder for the given audio file.
@@ -9,11 +9,16 @@ import { readBuffer } from './utils';
  * @param {File | ArrayBuffer} fileOrBuffer - the audio file or buffer to process
  * @returns Promise
  */
-function getAudioDecoder(wasm: string, fileOrBuffer: File | ArrayBuffer): Promise<AudioDecoder> {
+function getAudioDecoder(
+  wasm: string,
+  fileOrBuffer: File | ArrayBuffer
+): Promise<AudioDecoder> {
   // load a new instance of the wasm module per file
   // this is done to reset the allocated heap per file, as wasm doesn't have a way to shrink the heap manually
-  return Promise.all([decodeAudioModule({ locateFile: () => wasm }), readBuffer(fileOrBuffer)])
-    .then(results => new AudioDecoder(results[0], results[1]));
+  return Promise.all([
+    decodeAudioModule({ locateFile: () => wasm }),
+    readBuffer(fileOrBuffer),
+  ]).then((results) => new AudioDecoder(results[0], results[1]));
 }
 
 /**
@@ -22,7 +27,7 @@ function getAudioDecoder(wasm: string, fileOrBuffer: File | ArrayBuffer): Promis
  * Make sure to call dispose() when no longer needed to free its resources.
  */
 class AudioDecoder {
-  private static MEMFS_PATH = 'audio';
+  private static MEMFS_PATH = "audio";
   private _module;
   private _sampleRate: number;
   private _channelCount: number;
@@ -34,7 +39,13 @@ class AudioDecoder {
     this._module.FS.writeFile(AudioDecoder.MEMFS_PATH, new Int8Array(data));
 
     // read file properties
-    const { status: { status, error }, sampleRate, channelCount, encoding, duration } = this._module.getProperties(AudioDecoder.MEMFS_PATH)
+    const {
+      status: { status, error },
+      sampleRate,
+      channelCount,
+      encoding,
+      duration,
+    } = this._module.getProperties(AudioDecoder.MEMFS_PATH);
     if (status < 0) {
       throw `AudioDecoder initialization error: ${error}`;
     }
@@ -67,12 +78,24 @@ class AudioDecoder {
    * @param {DecodeAudioOptions} options={} - additional options for decoding.
    * @returns Float32Array
    */
-  decodeAudioData(start = 0, duration = -1, options: DecodeAudioOptions = {}): Float32Array {
+  decodeAudioData(
+    start = 0,
+    duration = -1,
+    options: DecodeAudioOptions = {}
+  ): Float32Array {
     const decodeOptions = {
       multiChannel: options.multiChannel ?? false,
     };
-  
-    const { status: { status, error }, samples: vector } = this._module.decodeAudio(AudioDecoder.MEMFS_PATH, start, duration, decodeOptions);
+
+    const {
+      status: { status, error },
+      samples: vector,
+    } = this._module.decodeAudio(
+      AudioDecoder.MEMFS_PATH,
+      start,
+      duration,
+      decodeOptions
+    );
     if (status < 0) {
       vector.delete();
       throw `decodeAudioData error: ${error}`;
@@ -98,9 +121,6 @@ class AudioDecoder {
   }
 }
 
-export {
-  getAudioDecoder,
-  AudioDecoder,
-};
+export { getAudioDecoder, AudioDecoder };
 
 export default getAudioDecoder;

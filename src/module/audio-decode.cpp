@@ -6,7 +6,7 @@
 /*
  * Reads the samples from a frame and puts them into the destination vector.
  * Samples will be stored as floats in the range of -1 to 1.
- * If the frame has multiple channels, samples will be averaged across all channels.
+ * If the frame has multiple channels, and multiChannel is false, samples will be averaged across all channels.
  */
 template <typename SampleType>
 void read_samples(AVFrame* frame, std::vector<float>& dest, bool is_planar, bool multiChannel) {
@@ -18,13 +18,13 @@ void read_samples(AVFrame* frame, std::vector<float>& dest, bool is_planar, bool
   for (int i = 0; i < frame->nb_samples; i++) {
     float sample = 0.0f;
     for (int j = 0; j < frame->channels; j++) {
-      float channelSample = is_planar 
+      float channelSample = is_planar
         ? (
           static_cast<float>(reinterpret_cast<SampleType*>(frame->extended_data[j])[i] - zero_sample) /
           static_cast<float>(max_numeric - zero_sample)
         )
         : (
-          static_cast<float>(reinterpret_cast<SampleType*>(frame->data[0])[i * frame->channels + j] - zero_sample) / 
+          static_cast<float>(reinterpret_cast<SampleType*>(frame->data[0])[i * frame->channels + j] - zero_sample) /
           static_cast<float>(max_numeric - zero_sample)
         );
 
@@ -34,6 +34,7 @@ void read_samples(AVFrame* frame, std::vector<float>& dest, bool is_planar, bool
         sample += channelSample;
       }
     }
+
     if (!multiChannel) {
       sample /= frame->channels;
       dest.push_back(sample);
@@ -46,7 +47,7 @@ void read_samples<float>(AVFrame* frame, std::vector<float>& dest, bool is_plana
     for (int i = 0; i < frame->nb_samples; i++) {
       float sample = 0.0f;
       for (int j = 0; j < frame->channels; j++) {
-        float channelSample = is_planar 
+        float channelSample = is_planar
           ? reinterpret_cast<float*>(frame->extended_data[j])[i]
           : reinterpret_cast<float*>(frame->data[0])[i * frame->channels + j];
 
@@ -65,6 +66,7 @@ void read_samples<float>(AVFrame* frame, std::vector<float>& dest, bool is_plana
 
 int read_samples(AVFrame* frame, AVSampleFormat format, std::vector<float>& dest, bool multiChannel) {
   bool is_planar = av_sample_fmt_is_planar(format);
+
   switch (format) {
     case AV_SAMPLE_FMT_U8:
     case AV_SAMPLE_FMT_U8P:
@@ -204,7 +206,9 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
 
   // decode loop
   std::vector<float> samples;
-  int samples_to_decode = std::ceil(duration * codec->sample_rate);
+
+  int samples_to_decode = std::ceil(duration * codec->sample_rate) * codec->channels;
+
   while ((status.status = av_read_frame(format, packet)) >= 0) {
     if (packet->stream_index == audio_stream_index) {
       // send compressed packet to decoder
@@ -246,6 +250,7 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
 
   // success
   status.status = 0;
+
   return { status, samples };
 }
 

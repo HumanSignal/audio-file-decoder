@@ -1,13 +1,14 @@
 // @ts-ignore
-import DecodeAudioWorker from 'web-worker:../wasm/decode-audio-worker';
-import { DecodeAudioOptions } from './types';
-import { readBuffer } from './utils';
+import DecodeAudioWorker from "web-worker:../wasm/decode-audio-worker";
+import { DecodeAudioOptions } from "./types";
+import { readBuffer } from "./utils";
 
 enum AudioDecoderMessageType {
-  Initialize = 'initialize',
-  Decode = 'decode',
-  DecodeError = 'decodeError',
-  Dispose = 'dispose',
+  Initialize = "initialize",
+  InitializeError = "initializeError",
+  Decode = "decode",
+  DecodeError = "decodeError",
+  Dispose = "dispose",
 }
 
 /**
@@ -17,30 +18,46 @@ enum AudioDecoderMessageType {
  * @param {File | ArrayBuffer} fileOrBuffer - the audio file or buffer to process
  * @returns Promise
  */
-function getAudioDecoderWorker(wasm: string, fileOrBuffer: File | ArrayBuffer): Promise<AudioDecoderWorker> {
+function getAudioDecoderWorker(
+  wasm: string,
+  fileOrBuffer: File | ArrayBuffer
+): Promise<AudioDecoderWorker> {
   const worker = new DecodeAudioWorker();
   return new Promise<AudioDecoderWorker>((resolve, reject) => {
     readBuffer(fileOrBuffer)
-      .then(fileData => {
+      .then((fileData) => {
         worker.onmessage = (e: MessageEvent) => {
-          const { type, sampleRate, channelCount, encoding, duration } = e.data;
+          const { type, sampleRate, channelCount, encoding, duration, error } =
+            e.data;
           if (type === AudioDecoderMessageType.Initialize) {
-            resolve(new AudioDecoderWorker(worker, {
-              sampleRate,
-              channelCount,
-              encoding,
-              duration,
-            }));
+            resolve(
+              new AudioDecoderWorker(worker, {
+                sampleRate,
+                channelCount,
+                encoding,
+                duration,
+              })
+            );
+          } else if (type === AudioDecoderMessageType.InitializeError) {
+            reject(error);
           } else {
-            reject('Failed to initialize decoder worker');
+            reject("Failed to initialize decoder worker");
           }
         };
-        worker.onerror = (err: ErrorEvent) => reject(`Failed to initialize decoder worker: ${err.message}`);
+        worker.onerror = (err: ErrorEvent) =>
+          reject(`Failed to initialize decoder worker: ${err.message}`);
 
         // initialize decoder thread
-        worker.postMessage({ type: AudioDecoderMessageType.Initialize, wasm: new URL(wasm, window.location.origin).href, fileData }, [ fileData ]);
+        worker.postMessage(
+          {
+            type: AudioDecoderMessageType.Initialize,
+            wasm: new URL(wasm, window.location.origin).href,
+            fileData,
+          },
+          [fileData]
+        );
       })
-      .catch(err => reject(err));
+      .catch((err) => reject(err));
   });
 }
 
@@ -88,7 +105,11 @@ class AudioDecoderWorker {
    * @param {DecodeAudioOptions} options={} - additional options for decoding.
    * @returns Float32Array
    */
-  decodeAudioData(start = 0, duration = -1, options: DecodeAudioOptions = {}): Promise<Float32Array> {
+  decodeAudioData(
+    start = 0,
+    duration = -1,
+    options: DecodeAudioOptions = {}
+  ): Promise<Float32Array> {
     return new Promise<Float32Array>((resolve, reject) => {
       // generate a unique id for the current decode request
       // this prevents race conditions when multiple decode requests are queued
@@ -96,16 +117,25 @@ class AudioDecoderWorker {
       const onDecode = (e: MessageEvent) => {
         const { type, id, samples, error } = e.data;
         if (type === AudioDecoderMessageType.Decode && id === requestId) {
-          this._worker.removeEventListener('message', onDecode);
+          this._worker.removeEventListener("message", onDecode);
           resolve(new Float32Array(samples));
-        } else if (type === AudioDecoderMessageType.DecodeError && id === requestId) {
-          this._worker.removeEventListener('message', onDecode);
+        } else if (
+          type === AudioDecoderMessageType.DecodeError &&
+          id === requestId
+        ) {
+          this._worker.removeEventListener("message", onDecode);
           reject(error);
         }
       };
 
-      this._worker.addEventListener('message', onDecode);
-      this._worker.postMessage({ type: AudioDecoderMessageType.Decode, id: requestId, start, duration, options });
+      this._worker.addEventListener("message", onDecode);
+      this._worker.postMessage({
+        type: AudioDecoderMessageType.Decode,
+        id: requestId,
+        start,
+        duration,
+        options,
+      });
     });
   }
 
@@ -119,9 +149,6 @@ class AudioDecoderWorker {
   }
 }
 
-export {
-  getAudioDecoderWorker,
-  AudioDecoderWorker,
-};
+export { getAudioDecoderWorker, AudioDecoderWorker };
 
 export default getAudioDecoderWorker;

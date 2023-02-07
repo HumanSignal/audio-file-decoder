@@ -1,5 +1,4 @@
-
-const _decoder_memfs_path = 'audio';
+const _decoder_memfs_path = "audio";
 let _decoder = undefined;
 
 function throwError(type, error) {
@@ -8,34 +7,42 @@ function throwError(type, error) {
 
 function initializeDecoder(messageType, wasm, fileData) {
   if (_decoder) {
-    throwError(messageType, 'decoder is already initialized');
+    throwError(messageType, "decoder is already initialized");
   }
-  return Module({ locateFile: () => wasm })
-    .then(m => {
-      _decoder = m;
-      _decoder.FS.writeFile(_decoder_memfs_path, new Int8Array(fileData));
-      const { status: { status, error }, sampleRate, channelCount, encoding, duration } = _decoder.getProperties(_decoder_memfs_path);
-      if (status < 0) {
-        _decoder.FS.unlink(_decoder_memfs_path);
-        throwError(messageType, error);
-      }
-      return {
-        sampleRate,
-        channelCount,
-        encoding,
-        duration,
-      };
-    });
+  return Module({ locateFile: () => wasm }).then((m) => {
+    _decoder = m;
+    _decoder.FS.writeFile(_decoder_memfs_path, new Int8Array(fileData));
+    const {
+      status: { status, error },
+      sampleRate,
+      channelCount,
+      encoding,
+      duration,
+    } = _decoder.getProperties(_decoder_memfs_path);
+    if (status < 0) {
+      _decoder.FS.unlink(_decoder_memfs_path);
+      throwError(messageType, error);
+    }
+    return {
+      sampleRate,
+      channelCount,
+      encoding,
+      duration,
+    };
+  });
 }
 
 function decodeAudio(messageType, start = 0, duration = -1, options = {}) {
   if (!_decoder) {
-    throwError(messageType, 'decoder is not initialized');
+    throwError(messageType, "decoder is not initialized");
   }
   const decodeOptions = {
     multiChannel: options.multiChannel ?? false,
   };
-  const { status: { status, error }, samples: vector } = _decoder.decodeAudio(_decoder_memfs_path, start, duration, decodeOptions);
+  const {
+    status: { status, error },
+    samples: vector,
+  } = _decoder.decodeAudio(_decoder_memfs_path, start, duration, decodeOptions);
   if (status < 0) {
     vector.delete();
     throw `decodeAudioData error: ${error}`;
@@ -49,31 +56,36 @@ function decodeAudio(messageType, start = 0, duration = -1, options = {}) {
   return samples;
 }
 
-onmessage = function(e) {
+onmessage = function (e) {
   const { type } = e.data;
   switch (type) {
-    case 'initialize':
+    case "initialize": {
       const { wasm, fileData } = e.data;
       initializeDecoder(type, wasm, fileData)
-        .then(({ sampleRate, channelCount, encoding, duration }) => postMessage({ type, sampleRate, channelCount, encoding, duration }));
+        .then(({ sampleRate, channelCount, encoding, duration }) =>
+          postMessage({ type, sampleRate, channelCount, encoding, duration })
+        )
+        .catch((err) => postMessage({ type: "initializeError", error: err }));
       break;
-    case 'decode':
+    }
+    case "decode": {
       const { id, start, duration, options } = e.data;
       try {
         const samples = decodeAudio(type, start, duration, options);
-        postMessage({ type, id, samples: samples.buffer }, [ samples.buffer ])
+        postMessage({ type, id, samples: samples.buffer }, [samples.buffer]);
       } catch (err) {
         // need to return the id of the failed decode request, so use custom message instead of throwing error
-        postMessage({ type: 'decodeError', id, error: err })
+        postMessage({ type: "decodeError", id, error: err });
       }
       break;
-    case 'dispose':
+    }
+    case "dispose":
       if (_decoder) {
         _decoder.FS.unlink(_decoder_memfs_path);
       }
       break;
     default:
-      throwError(type, 'unsupported decoder message');
+      throwError(type, "unsupported decoder operation");
       break;
   }
 };
