@@ -42,6 +42,7 @@ COMMON_CCFLAG := \
 	-s WASM=1 \
 	-s STRICT=1 \
 	-s MODULARIZE=1 \
+	-s ENVIRONMENT=web \
 	-s MALLOC=emmalloc \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s EXPORTED_RUNTIME_METHODS=['FS'] \
