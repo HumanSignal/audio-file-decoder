@@ -36,6 +36,7 @@ COMMON_CCFLAG := \
 	-Wall \
 	-O3 \
 	--closure 1 \
+	--closure-args="--language_in=ECMASCRIPT_2021" \
 	--no-entry \
 	-fno-exceptions \
 	-s WASM=1 \

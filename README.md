@@ -146,6 +146,70 @@ app/
 
 Make sure to then manually pass in the correct relative path (again, from your app's origin) when using `getAudioDecoder` or `getAudioDecoderWorker`.
 
+## Building on M1 Macs
+
+### Prerequisites
+
+Before you begin, ensure you have Homebrew installed on your Mac. If not, you can install it by following the instructions at [brew.sh](https://brew.sh/).
+
+Once Homebrew is installed, run the following commands to install the necessary build tools:
+
+```bash
+brew update
+brew install cmake autoconf automake libtool pkg-config
+```
+
+### Build Steps
+
+If you're using an M1 Mac, you may need to take a few additional steps to get the project building correctly:
+
+1. Ensure you have the latest version of Emscripten:
+   ```bash
+   cd ~/code/audio-file-decoder/emsdk
+   ./emsdk install latest
+   ./emsdk activate latest
+   ```
+
+2. If sourcing `emsdk_env.sh` doesn't work for you, you can set up the Emscripten environment manually. From the `emsdk` directory, run the following commands:
+   ```bash
+   export EMSDK="$PWD"
+   export EM_CONFIG="$HOME/.emscripten"
+   export EMSDK_NODE="$EMSDK/node/$(node --version)_64bit/bin/node"
+   export PATH="$EMSDK:$EMSDK/upstream/emscripten:$EMSDK_NODE:$PATH"
+   ```
+   After setting these environment variables, generate the Emscripten configuration file:
+   ```bash
+   emcc --generate-config
+   ```
+
+3. Set the `EM_LLVM_ROOT` environment variable:
+   ```bash
+   export EM_LLVM_ROOT="$HOME/code/audio-file-decoder/emsdk/upstream/bin"
+   ```
+
+4. Set the `BINARYEN_ROOT` in the Emscripten configuration:
+   Edit the file `~/.emscripten` and add:
+   ```python
+   BINARYEN_ROOT = '/Users/your_username/code/audio-file-decoder/emsdk/upstream'
+   ```
+   Replace `your_username` with your actual username.
+
+5. The Makefile has been updated to use ECMAScript 2021 for the Closure Compiler. If you're using an older version of the project, you may need to update the Makefile manually:
+   
+   In the `COMMON_CCFLAG` variable, add:
+   ```makefile
+   --closure-args="--language_in=ECMASCRIPT_2021" \
+   ```
+   
+   And in the worker target rule, update to:
+   ```makefile
+   EMCC_CLOSURE_ARGS="--language_in=ECMASCRIPT_2021" $(CC) $(CCFLAG_WORKER) -o $@ $? $(LDFLAG)
+   ```
+
+After making these changes, you should be able to build the project successfully on your M1 Mac.
+
+Note: You may want to add the environment variable exports to your shell configuration file (e.g., `~/.zshrc` or `~/.bash_profile`) for persistence across terminal sessions.
+
 ## Building
 The build steps below have been tested on Ubuntu 20.04.1 LTS.
 
