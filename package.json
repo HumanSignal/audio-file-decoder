@@ -1,6 +1,6 @@
 {
   "name": "@martel/audio-file-decoder",
-  "version": "3.0.0-beta.3",
+  "version": "3.0.0-beta.4",
   "description": "Decode audio files using FFmpeg and WebAssembly",
   "license": "LGPL-2.1-or-later",
   "keywords": [
