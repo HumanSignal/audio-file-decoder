@@ -2,7 +2,7 @@
   "name": "@humansignal/audio-file-decoder",
   "version": "0.1.3",
   "description": "Decode audio files using FFmpeg and WebAssembly",
-  "license": "MIT",
+  "license": "LGPL-2.1-or-later",
   "keywords": [
     "audio",
     "decode",
