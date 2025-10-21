@@ -117,34 +117,64 @@ interface DecodeAudioOptions {
 
 ### Importing WASM Assets
 
-The `getAudioDecoder` and `getAudioDecoderWorker` factory functions expect relative paths (from your app's origin) to the wasm file or inlined versions of the wasm file provided by the library. You'll need to include this wasm file as an asset in your application, either by using a plugin/loader if using module bundlers (e.g `file-loader` for webpack) or by copying this file over in your build process.
+The `getAudioDecoder` and `getAudioDecoderWorker` factory functions expect a path to the WASM file. The package includes the WASM file at `audio-file-decoder/decode-audio.wasm` which can be imported directly.
 
-If using a module bundler with appropriate plugins/loaders, you can simply import the required wasm asset like below:
+#### Modern Bundlers (Vite, Webpack 5+, etc.)
+
+With modern bundlers that support WASM imports, you can import the WASM file directly:
+
 ```ts
 import { getAudioDecoder, getAudioDecoderWorker } from 'audio-file-decoder';
 import DecodeAudioWasm from 'audio-file-decoder/decode-audio.wasm';
 
-// passing the path or inlined wasm to getAudioDecoder
+// The bundler will handle the WASM file automatically
 getAudioDecoder(DecodeAudioWasm, myAudioFile);
-// passing the path or inlined wasm to getAudioDecoderWorker
 getAudioDecoderWorker(DecodeAudioWasm, myAudioFile);
 ```
 
-If you aren't using module bundler, then you need to make sure your build process copies the asset over. The wasm file is located at:
-```bash
-/node_modules/audio-file-decoder/decode-audio.wasm
+**Vite:** Works out of the box with `?url` suffix:
+```ts
+import DecodeAudioWasm from 'audio-file-decoder/decode-audio.wasm?url';
 ```
 
-For example, a typical application using this library should include it as an asset like in the example file structure below:
-```bash
-app/
-  dist/
-    index.html
-    index.js
-    decode-audio.wasm
+**Webpack 5+:** Configure in `webpack.config.js`:
+```js
+module.exports = {
+  experiments: {
+    asyncWebAssembly: true,
+  },
+  module: {
+    rules: [
+      {
+        test: /\.wasm$/,
+        type: 'asset/resource',
+      }
+    ]
+  }
+};
 ```
 
-Make sure to then manually pass in the correct relative path (again, from your app's origin) when using `getAudioDecoder` or `getAudioDecoderWorker`.
+#### Manual Copy (No Bundler)
+
+If not using a bundler, copy the WASM file from the package to your public directory:
+
+```bash
+# The WASM file is located at:
+cp node_modules/audio-file-decoder/dist/decode-audio.wasm public/
+
+# Your app structure:
+public/
+  index.html
+  decode-audio.wasm
+```
+
+Then pass the relative path:
+```ts
+import { getAudioDecoder } from 'audio-file-decoder';
+
+// Pass the relative path from your app's origin
+getAudioDecoder('/decode-audio.wasm', myAudioFile);
+```
 
 ## Building
 The build steps below have been tested on Ubuntu 20.04.1 LTS.

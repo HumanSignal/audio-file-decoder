@@ -1,3 +1,4 @@
+SHELL := /bin/bash
 # paths
 LIB_PATH  := src/lib
 SRC_PATH  := src/module
@@ -69,7 +70,7 @@ $(WASM_TARGET): $(OBJ)
 # worker js file with glue code inlined
 $(WASM_WORKER_TARGET): $(OBJ)
 	@ mkdir -p $(WASM_PATH)
-	EMCC_CLOSURE_ARGS="--language_in=ECMASCRIPT6" $(CC) $(CCFLAG_WORKER) -o $@ $? $(LDFLAG)
+	EMCC_CLOSURE_ARGS="--language_in=ECMASCRIPT_2021" $(CC) $(CCFLAG_WORKER) -o $@ $? $(LDFLAG)
 
 # object files
 $(OBJ_PATH)/%.o: $(SRC_PATH)/%.c*

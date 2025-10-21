@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+emsdk/
+
+# Build output
+dist/
+obj/
+src/wasm/
+decode-audio.wasm
+
+# FFmpeg dependencies (will be downloaded during build)
+deps/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (not needed for build)
+*.md
+!README.md
+PACKAGE_FIXES.md
+
+# Docker files (avoid recursive copies)
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,8 +1,8 @@
 {
-  "name": "audio-file-decoder",
-  "version": "2.3.0",
+  "name": "@humansignal/audio-file-decoder",
+  "version": "0.1.3",
   "description": "Decode audio files using FFmpeg and WebAssembly",
-  "license": "LGPL-2.1-or-later",
+  "license": "MIT",
   "keywords": [
     "audio",
     "decode",
@@ -20,25 +20,32 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aeroheim/audio-file-decoder.git"
+    "url": "git+https://github.com/humansignal/audio-file-decoder.git"
   },
-  "homepage": "https//github.com/aeroheim/audio-file-decoder#readme",
-  "bugs": "https://github.com/aeroheim/audio-file-decoder/issues",
-  "author": {
-    "name": "Benjamin Pang",
-    "email": "bp7936@gmail.com",
-    "url": "https://aeroheim.moe/"
-  },
+  "homepage": "https//github.com/humansignal/audio-file-decoder#readme",
+  "bugs": "https://github.com/humansignal/audio-file-decoder/issues",
+  "author": "Brandon Martel",
   "main": "./dist/audio-file-decoder.js",
   "browser": "./dist/audio-file-decoder.js",
   "types": "./dist/audio-file-decoder.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/audio-file-decoder.d.ts",
+      "import": "./dist/audio-file-decoder.js",
+      "default": "./dist/audio-file-decoder.js"
+    },
+    "./decode-audio.wasm": {
+      "default": "./dist/decode-audio.wasm"
+    },
+    "./dist/decode-audio.wasm": {
+      "default": "./dist/decode-audio.wasm"
+    },
+    "./package.json": "./package.json"
+  },
   "files": [
-    "/dist/audio-file-decoder.js",
-    "/dist/audio-file-decoder.d.ts",
-    "/decode-audio.wasm"
+    "/dist"
   ],
   "scripts": {
-    "prepublishOnly": "npm run build",
     "sync": "make sync",
     "unsync": "make unsync",
     "build": "npm run clean && npm run types && rollup -c",

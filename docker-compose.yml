@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Build service - builds all artifacts
+  build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: stage_js_build
+    image: audio-file-decoder:build
+    volumes:
+      - ./dist:/src/dist
+    command: >
+      bash -c "npm run build-wasm && npm run build"
+
+  # Development service - interactive environment
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: audio-file-decoder:dev
+    volumes:
+      - .:/src
+      - /src/node_modules
+      - /src/emsdk
+      - /src/deps
+    working_dir: /src
+    stdin_open: true
+    tty: true
+    user: emscripten
+
+  # Quick build service - assumes deps are already built
+  quick-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: stage_ffmpeg_build
+    image: audio-file-decoder:quick-build
+    volumes:
+      - .:/src
+      - /src/node_modules
+      - /src/deps
+    working_dir: /src
+    command: >
+      bash -c "npm run build-wasm && npm run build"

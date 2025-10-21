@@ -15,7 +15,7 @@ export default {
   },
   plugins: [
     resolve({ browser: true, extensions }),
-    eslint(),
+    eslint({ exclude: ['node_modules/**', 'src/wasm/**'] }),
     worker({ targetPlatform: 'browser' }),
     babel({
       presets: [
@@ -26,7 +26,7 @@ export default {
         '@babel/plugin-proposal-class-properties',
         '@babel/plugin-transform-runtime',
       ],
-      exclude: 'node_modules/**',
+      exclude: ['node_modules/**', 'src/wasm/**'],
       extensions,
       babelHelpers: 'runtime',
     }),
@@ -34,8 +34,9 @@ export default {
     filesize(),
     copy({
       targets: [
-        // the wasm is copied to the root directory instead of dist for more intuitive submodule access
-        // clients will be able to import the wasm module with 'audio-file-decoder/decode-audio.wasm'
+        // Copy wasm to dist for proper bundler resolution
+        { src: 'src/wasm/decode-audio.wasm', dest: 'dist' },
+        // Also copy to root for backward compatibility
         { src: 'src/wasm/decode-audio.wasm', dest: '.' },
       ]
     }),
