@@ -1,5 +1,6 @@
 #include "audio-decode.h"
 #include <emscripten/bind.h>
+#include <emscripten.h>
 #include <limits>
 #include <cmath>
 
@@ -89,6 +90,42 @@ int read_samples(AVFrame* frame, AVSampleFormat format, std::vector<float>& dest
   }
 }
 
+EM_JS(int, js_read_packet, (void* opaque, uint8_t* buf, int buf_size), {
+  const stream = globalThis.wasmAudioStreams ? globalThis.wasmAudioStreams.get(Number(opaque)) : null;
+  if (!stream) return -1;
+  const bytes = stream.readSync(buf_size);
+  if (!bytes || bytes.length === 0) return 0;
+  Module.HEAPU8.set(bytes, buf);
+  return bytes.length;
+});
+
+EM_JS(double, js_seek, (void* opaque, double offset, int whence), {
+  const stream = globalThis.wasmAudioStreams ? globalThis.wasmAudioStreams.get(Number(opaque)) : null;
+  if (!stream) return -1;
+  if (whence & 0x10000) {
+    return stream.getSize();
+  }
+  return stream.seek(offset, whence);
+});
+
+static int read_packet_callback(void* opaque, uint8_t* buf, int buf_size) {
+  return js_read_packet(opaque, buf, buf_size);
+}
+
+static int64_t seek_callback(void* opaque, int64_t offset, int whence) {
+  return static_cast<int64_t>(js_seek(opaque, static_cast<double>(offset), whence));
+}
+
+uint32_t create_stream_context() {
+  char* ptr = new char;
+  return reinterpret_cast<uint32_t>(ptr);
+}
+
+void destroy_stream_context(uint32_t ctx_addr) {
+  char* ptr = reinterpret_cast<char*>(ctx_addr);
+  delete ptr;
+}
+
 std::string get_error_str(int status) {
   char errbuf[AV_ERROR_MAX_STRING_SIZE];
   av_make_error_string(errbuf, AV_ERROR_MAX_STRING_SIZE, status);
@@ -98,10 +135,54 @@ std::string get_error_str(int status) {
 Status open_audio_stream(const std::string& path, AVFormatContext*& format, AVCodecContext*& codec, int& audio_stream_index) {
   Status status;
   format = avformat_alloc_context();
-  if ((status.status = avformat_open_input(&format, path.c_str(), nullptr, nullptr)) != 0) {
-    status.error = "avformat_open_input: " + get_error_str(status.status);
+  if (!format) {
+    status.status = -1;
+    status.error = "avformat_alloc_context failed";
     return status;
   }
+
+  if (path.rfind("stream:", 0) == 0) {
+    std::string addr_str = path.substr(7);
+    void* opaque = reinterpret_cast<void*>(std::stoull(addr_str));
+
+    const int io_buffer_size = 32768;
+    uint8_t* io_buffer = static_cast<uint8_t*>(av_malloc(io_buffer_size));
+    if (!io_buffer) {
+      status.status = -1;
+      status.error = "av_malloc for AVIOContext buffer failed";
+      return status;
+    }
+
+    AVIOContext* io_context = avio_alloc_context(
+      io_buffer,
+      io_buffer_size,
+      0, // read-only
+      opaque,
+      read_packet_callback,
+      nullptr,
+      seek_callback
+    );
+
+    if (!io_context) {
+      av_free(io_buffer);
+      status.status = -1;
+      status.error = "avio_alloc_context failed";
+      return status;
+    }
+
+    format->pb = io_context;
+
+    if ((status.status = avformat_open_input(&format, nullptr, nullptr, nullptr)) != 0) {
+      status.error = "avformat_open_input (stream): " + get_error_str(status.status);
+      return status;
+    }
+  } else {
+    if ((status.status = avformat_open_input(&format, path.c_str(), nullptr, nullptr)) != 0) {
+      status.error = "avformat_open_input: " + get_error_str(status.status);
+      return status;
+    }
+  }
+
   if ((status.status = avformat_find_stream_info(format, nullptr)) < 0) {
     status.error = "avformat_find_stream_info: " + get_error_str(status.status);
     return status;
@@ -132,7 +213,12 @@ Status open_audio_stream(const std::string& path, AVFormatContext*& format, AVCo
 
 void close_audio_stream(AVFormatContext* format, AVCodecContext* codec, AVFrame* frame, AVPacket* packet) {
   if (format) {
+    AVIOContext* pb = format->pb;
     avformat_close_input(&format);
+    if (pb) {
+      av_freep(&pb->buffer);
+      avio_context_free(&pb);
+    }
   }
   if (codec) {
     avcodec_free_context(&codec);
@@ -271,5 +357,7 @@ EMSCRIPTEN_BINDINGS(my_module) {
     .field("multiChannel", &DecodeAudioOptions::multiChannel);
   emscripten::function("getProperties", &get_properties);
   emscripten::function("decodeAudio", &decode_audio);
+  emscripten::function("createStreamContext", &create_stream_context);
+  emscripten::function("destroyStreamContext", &destroy_stream_context);
   emscripten::register_vector<float>("vector<float>");
 }

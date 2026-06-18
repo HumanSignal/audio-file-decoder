@@ -35,3 +35,6 @@ struct DecodeAudioOptions {
 
 AudioProperties get_properties(const std::string& path);
 DecodeAudioResult decode_audio(const std::string& path, float start, float duration, DecodeAudioOptions options);
+uint32_t create_stream_context();
+void destroy_stream_context(uint32_t ctx_addr);
+
