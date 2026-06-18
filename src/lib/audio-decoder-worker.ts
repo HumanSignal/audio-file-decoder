@@ -11,6 +11,27 @@ enum AudioDecoderMessageType {
   Dispose = "dispose",
 }
 
+function dataURIToBlob(dataURI: string): Blob {
+  const parts = dataURI.split(",");
+  const header = parts[0];
+  const data = parts[1];
+  const mimeString = header.split(":")[1].split(";")[0];
+
+  let byteString;
+  if (header.indexOf("base64") >= 0) {
+    byteString = atob(data);
+  } else {
+    byteString = decodeURIComponent(data);
+  }
+
+  const ab = new ArrayBuffer(byteString.length);
+  const ia = new Uint8Array(ab);
+  for (let i = 0; i < byteString.length; i++) {
+    ia[i] = byteString.charCodeAt(i);
+  }
+  return new Blob([ab], { type: mimeString });
+}
+
 function getUrlContentLength(url: string): Promise<number> {
   return fetch(url, { method: "HEAD" })
     .then((response) => {
@@ -50,6 +71,25 @@ function getAudioDecoderWorker(
 ): Promise<AudioDecoderWorker> {
   const worker = new DecodeAudioWorker();
   return new Promise<AudioDecoderWorker>((resolve, reject) => {
+    let source = fileOrBufferOrUrl;
+
+    if (typeof source === "string" && source.startsWith("data:")) {
+      try {
+        source = dataURIToBlob(source);
+      } catch (err) {
+        reject(`Failed to parse data URI: ${err}`);
+        return;
+      }
+    }
+
+    if (typeof source === "string") {
+      try {
+        source = new URL(source, window.location.href).href;
+      } catch (err) {
+        // Ignore and keep original
+      }
+    }
+
     const initWorker = (fileData?: ArrayBuffer, streamConfig?: WasmAudioStreamConfig) => {
       worker.onmessage = (e: MessageEvent) => {
         const { type, sampleRate, channelCount, encoding, duration, error } =
@@ -87,12 +127,12 @@ function getAudioDecoderWorker(
 
     // Determine if we should stream
     let shouldStream = !!options.stream;
-    const isUrl = typeof fileOrBufferOrUrl === "string";
+    const isUrl = typeof source === "string";
     const isConfig =
-      fileOrBufferOrUrl &&
-      typeof fileOrBufferOrUrl === "object" &&
-      !("byteLength" in fileOrBufferOrUrl) &&
-      !("size" in fileOrBufferOrUrl && (fileOrBufferOrUrl instanceof Blob));
+      source &&
+      typeof source === "object" &&
+      !("byteLength" in source) &&
+      !("size" in source && (source instanceof Blob));
 
     if (isUrl || isConfig) {
       shouldStream = true;
@@ -100,24 +140,24 @@ function getAudioDecoderWorker(
 
     if (shouldStream) {
       if (isConfig) {
-        initWorker(undefined, fileOrBufferOrUrl as WasmAudioStreamConfig);
+        initWorker(undefined, source as WasmAudioStreamConfig);
       } else if (isUrl) {
-        getUrlContentLength(fileOrBufferOrUrl as string)
+        getUrlContentLength(source as string)
           .then((size) => {
-            initWorker(undefined, { url: fileOrBufferOrUrl as string, size });
+            initWorker(undefined, { url: source as string, size });
           })
           .catch((err) => reject(err));
-      } else if (fileOrBufferOrUrl instanceof Blob) {
+      } else if (source instanceof Blob) {
         initWorker(undefined, {
-          fileOrBlob: fileOrBufferOrUrl,
-          size: fileOrBufferOrUrl.size,
+          fileOrBlob: source,
+          size: source.size,
         });
       } else {
         reject("Invalid audio source for streaming");
       }
     } else {
       // Standard mode - load full buffer
-      readBuffer(fileOrBufferOrUrl as Blob | ArrayBuffer)
+      readBuffer(source as Blob | ArrayBuffer)
         .then((fileData) => initWorker(fileData))
         .catch((err) => reject(err));
     }
