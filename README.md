@@ -158,7 +158,6 @@ Can be passed to `getAudioDecoderWorker` as the source parameter instead of a st
 ```ts
 interface WasmAudioStreamConfig {
   url?: string;         // The stream URL
-  originalUrl?: string; // The redirect anchor URL (if refreshing)
   fileOrBlob?: Blob;    // Local file handle (falls back to local FileReaderSync streaming)
   size: number;         // Total size of the file in bytes (avoids initial fetch)
 }

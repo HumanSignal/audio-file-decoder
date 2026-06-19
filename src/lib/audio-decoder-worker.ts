@@ -145,7 +145,7 @@ function getAudioDecoderWorker(
       } else if (isUrl) {
         getUrlContentLength(source as string)
           .then(({ size, finalUrl }) => {
-            initWorker(undefined, { url: finalUrl, originalUrl: source as string, size });
+            initWorker(undefined, { url: finalUrl, size });
           })
           .catch((err) => reject(err));
       } else if (source instanceof Blob) {
