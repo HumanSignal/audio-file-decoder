@@ -10,6 +10,7 @@ interface DecodeAudioOptions {
 
 interface WasmAudioStreamConfig {
   url?: string;
+  originalUrl?: string;
   fileOrBlob?: Blob; // Using Blob covers File too
   size: number;
 }

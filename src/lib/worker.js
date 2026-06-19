@@ -9,6 +9,7 @@ class WasmAudioStreamReader {
     this.fileOrBlob = config.fileOrBlob;
     this.size = config.size;
     this.position = 0;
+    this.lastError = null;
     
     if (this.fileOrBlob) {
       this.readerSync = new FileReaderSync();
@@ -97,6 +98,9 @@ class WasmAudioStreamReader {
             }
           } else {
             console.error(`Sync XHR failed with status ${xhr.status}`);
+            if (xhr.status === 403 || xhr.status === 401) {
+              this.lastError = xhr.status;
+            }
             return null;
           }
         } catch (err) {
@@ -174,17 +178,29 @@ function decodeAudio(messageType, start = 0, duration = -1, options = {}) {
   const decodeOptions = {
     multiChannel: options.multiChannel ?? false,
   };
+  
+  let stream = null;
   if (_streamContext && globalThis.wasmAudioStreams) {
-    const stream = globalThis.wasmAudioStreams.get(_streamContext);
+    stream = globalThis.wasmAudioStreams.get(_streamContext);
     if (stream) {
       stream.position = 0;
+      stream.lastError = null;
     }
   }
+  
   const path = _streamContext ? `stream:${_streamContext}` : _decoder_memfs_path;
   const {
     status: { status, error },
     samples: vector,
   } = _decoder.decodeAudio(path, start, duration, decodeOptions);
+  
+  if (stream && stream.lastError) {
+    if (vector && typeof vector.delete === "function") {
+      vector.delete();
+    }
+    throw new Error(`HTTP_STATUS_${stream.lastError}`);
+  }
+
   if (status < 0) {
     if (vector && typeof vector.delete === "function") {
       vector.delete();
@@ -217,7 +233,19 @@ onmessage = function (e) {
         const samples = decodeAudio(type, start, duration, options);
         postMessage({ type, id, samples: samples.buffer }, [samples.buffer]);
       } catch (err) {
-        postMessage({ type: "decodeError", id, error: err });
+        postMessage({ type: "decodeError", id, error: err.message || err });
+      }
+      break;
+    }
+    case "updateUrl": {
+      const { url } = e.data;
+      if (_streamContext && globalThis.wasmAudioStreams) {
+        const stream = globalThis.wasmAudioStreams.get(_streamContext);
+        if (stream) {
+          stream.url = url;
+          stream.buffer = null;
+          stream.bufferStart = -1;
+        }
       }
       break;
     }

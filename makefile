@@ -33,9 +33,17 @@ LIBMP3LAME_TARGET      := $(foreach target, $(LIBMP3LAME_TARGET_NAME), $(FFMPEG_
 
 # compiler flags
 CC            := em++
+
+DEBUG ?= 0
+ifeq ($(DEBUG), 1)
+  OPT_FLAGS := -g -O0
+else
+  OPT_FLAGS := -O3 -DNDEBUG
+endif
+
 COMMON_CCFLAG := \
 	-Wall \
-	-g \
+	$(OPT_FLAGS) \
 	--closure 0 \
 	--no-entry \
 	-fno-exceptions \

@@ -45,9 +45,11 @@ void read_samples(AVFrame* frame, std::vector<float>& dest, bool is_planar, bool
 
 template <>
 void read_samples<float>(AVFrame* frame, std::vector<float>& dest, bool is_planar, bool multiChannel, int start_sample_offset, int num_samples_to_copy) {
+#ifndef NDEBUG
     EM_ASM({
       console.log("[DEBUG] Entering read_samples<float>: start_offset =", $0, "num_samples =", $1, "nb_samples =", $2, "is_planar =", $3, "channels =", $4);
     }, start_sample_offset, num_samples_to_copy, frame->nb_samples, is_planar, frame->channels);
+#endif
     for (int i = start_sample_offset; i < start_sample_offset + num_samples_to_copy; i++) {
       float sample = 0.0f;
       for (int j = 0; j < frame->channels; j++) {
@@ -261,9 +263,11 @@ AudioProperties get_properties(const std::string& path) {
 }
 
 DecodeAudioResult decode_audio(const std::string& path, float start = 0, float duration = -1, DecodeAudioOptions options = {}) {
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] decode_audio start: start =", $0, "duration =", $1);
   }, start, duration);
+#endif
   av_log_set_level(AV_LOG_ERROR);
 
   Status status;
@@ -272,9 +276,11 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
   int audio_stream_index = -1;
 
   status = open_audio_stream(path, format, codec, audio_stream_index);
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] open_audio_stream status =", $0);
   }, status.status);
+#endif
   if (status.status < 0) {
     close_audio_stream(format, codec, nullptr, nullptr);
     // check if vector is undefined/null in js
@@ -283,28 +289,36 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
 
   // seek to start timestamp
   AVStream* stream = format->streams[audio_stream_index];
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] format->duration =", $0, "stream->time_base =", $1, "/", $2, "codec->sample_rate =", $3);
   }, (double)format->duration, stream->time_base.num, stream->time_base.den, codec->sample_rate);
+#endif
   int64_t start_timestamp = av_rescale(start, stream->time_base.den, stream->time_base.num);
   int64_t max_timestamp = av_rescale(format->duration / static_cast<float>(AV_TIME_BASE), stream->time_base.den, stream->time_base.num);
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] start_timestamp =", $0, "max_timestamp =", $1);
   }, (double)start_timestamp, (double)max_timestamp);
+#endif
   if ((status.status = av_seek_frame(format, audio_stream_index, std::min(start_timestamp, max_timestamp), AVSEEK_FLAG_ANY)) < 0) {
     close_audio_stream(format, codec, nullptr, nullptr);
     status.error = "av_seek_frame: " + get_error_str(status.status) + ". timestamp: " + std::to_string(start);
     return { status };
   }
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] av_seek_frame success");
   });
+#endif
 
   AVPacket* packet = av_packet_alloc();
   AVFrame* frame = av_frame_alloc();
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] packet and frame allocated: packet =", $0, "frame =", $1);
   }, (double)(uintptr_t)packet, (double)(uintptr_t)frame);
+#endif
   if (!packet || !frame) {
     close_audio_stream(format, codec, frame, packet);
     status.status = -1;
@@ -322,9 +336,11 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
   bool first_frame = true;
   int64_t next_write_sample = target_sample;
 
+#ifndef NDEBUG
   EM_ASM({
     console.log("[DEBUG] target_sample =", $0, "samples_to_decode =", $1);
   }, (double)target_sample, (double)samples_to_decode);
+#endif
 
   while ((status.status = av_read_frame(format, packet)) >= 0) {
     if (packet->stream_index == audio_stream_index) {
@@ -353,14 +369,18 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
         if (frame->pts != AV_NOPTS_VALUE) {
           double tb = av_q2d(stream->time_base);
           frame_start_sample = std::round(frame->pts * tb * codec->sample_rate);
+#ifndef NDEBUG
           EM_ASM({
             console.log("[DEBUG] frame->pts =", $0, "stream->time_base =", $1, "/", $2, "tb =", $3, "sample_rate =", $4, "-> frame_start_sample =", $5, "next_write =", $6, "target =", $7);
           }, (double)frame->pts, stream->time_base.num, stream->time_base.den, tb, codec->sample_rate, (double)frame_start_sample, (double)next_write_sample, (double)target_sample);
+#endif
         } else {
           frame_start_sample = next_write_sample;
+#ifndef NDEBUG
           EM_ASM({
             console.log("[DEBUG] frame->pts=AV_NOPTS_VALUE -> frame_start_sample =", $0);
           }, (double)frame_start_sample);
+#endif
         }
 
         if (first_frame) {
@@ -368,9 +388,11 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
           if (frame_start_sample > target_sample) {
             int64_t gap = frame_start_sample - target_sample;
             int64_t pad_samples = std::min(gap, samples_to_decode);
+#ifndef NDEBUG
             EM_ASM({
               console.log("[DEBUG] Padding initial gap of", $0, "samples");
             }, (double)pad_samples);
+#endif
             samples.resize(pad_samples * codec->channels, 0.0f);
             next_write_sample = target_sample + pad_samples;
             total_samples_decoded = pad_samples;
@@ -390,9 +412,11 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
 
         // Check if the frame is completely before our next write position
         if (frame_start_sample + frame->nb_samples <= next_write_sample) {
+#ifndef NDEBUG
           EM_ASM({
             console.log("[DEBUG] Frame before next write sample: frame_start =", $0, "nb_samples =", $1, "next_write =", $2);
           }, (double)frame_start_sample, frame->nb_samples, (double)next_write_sample);
+#endif
           av_frame_unref(frame);
           continue;
         }
@@ -405,9 +429,11 @@ DecodeAudioResult decode_audio(const std::string& path, float start = 0, float d
         int64_t samples_needed = samples_to_decode - total_samples_decoded;
         int64_t samples_to_copy = std::min(samples_available, samples_needed);
 
+#ifndef NDEBUG
         EM_ASM({
           console.log("[DEBUG] Copying: frame_offset =", $0, "samples_available =", $1, "samples_needed =", $2, "samples_to_copy =", $3, "nb_samples =", $4);
         }, (double)frame_offset, (double)samples_available, (double)samples_needed, (double)samples_to_copy, frame->nb_samples);
+#endif
 
         if (samples_to_copy > 0) {
           read_samples(frame, codec->sample_fmt, samples, options.multiChannel, frame_offset, samples_to_copy);

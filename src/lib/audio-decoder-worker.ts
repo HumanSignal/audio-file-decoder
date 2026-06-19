@@ -145,7 +145,7 @@ function getAudioDecoderWorker(
       } else if (isUrl) {
         getUrlContentLength(source as string)
           .then(({ size, finalUrl }) => {
-            initWorker(undefined, { url: finalUrl, size });
+            initWorker(undefined, { url: finalUrl, originalUrl: source as string, size });
           })
           .catch((err) => reject(err));
       } else if (source instanceof Blob) {
@@ -238,6 +238,17 @@ class AudioDecoderWorker {
         duration,
         options,
       });
+    });
+  }
+
+  /**
+   * Updates the stream URL dynamically.
+   * @param {string} url - the new URL to use.
+   */
+  updateUrl(url: string) {
+    this._worker.postMessage({
+      type: "updateUrl",
+      url,
     });
   }
 
