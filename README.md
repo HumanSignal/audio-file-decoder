@@ -204,6 +204,38 @@ npm install && npm run sync && npm run build-deps
 npm run build-wasm && npm run build
 ```
 
+### Local Development & Integration (Iterating with Bun)
+
+To easily iterate on this library without having to manually copy built files to a consuming application (such as `hs-platform`), you can link the package locally using `bun link`:
+
+1. Register this package globally in your local environment:
+   ```bash
+   # In the root of audio-file-decoder
+   bun link
+   ```
+
+2. Link it inside the consuming web application directory:
+   ```bash
+   # In hs-platform/services/lso/web
+   bun link @humansignal/audio-file-decoder
+
+   # In hs-platform/services/lse/web
+   bun link @humansignal/audio-file-decoder
+   ```
+
+3. When you make changes to `audio-file-decoder`, rebuild it:
+   ```bash
+   # Quick build inside Docker (assumes ffmpeg deps are built)
+   ./docker-build.sh quick
+   ```
+   The consuming application will automatically use the updated build from the linked symlink.
+
+4. **Cache Invalidation**: Vite caches dependencies in `node_modules/.vite`. After rebuilds, clear the dev server's cache in the consumer to ensure it picks up the latest code:
+   ```bash
+   # In the consumer web directories
+   rm -rf node_modules/.vite
+   ```
+
 Commands for the WebAssembly module, which can be useful if modifying or extending the C++ wrapper around FFmpeg:
 ```bash
 # build the WebAssembly module - output is located at src/wasm
