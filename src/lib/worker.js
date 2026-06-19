@@ -1,3 +1,4 @@
+/* global FileReaderSync, Module, globalThis */
 const _decoder_memfs_path = "audio";
 let _decoder = undefined;
 let _streamContext = null;
@@ -19,12 +20,13 @@ class WasmAudioStreamReader {
   }
 
   seek(offset, whence) {
+    const seekMode = whence & 0xf;
     let newPosition = this.position;
-    if (whence === 0) {
+    if (seekMode === 0) {
       newPosition = offset;
-    } else if (whence === 1) {
+    } else if (seekMode === 1) {
       newPosition = this.position + offset;
-    } else if (whence === 2) {
+    } else if (seekMode === 2) {
       newPosition = this.size + offset;
     }
     
@@ -98,7 +100,8 @@ function initializeDecoder(messageType, wasm, fileData, streamConfig) {
   if (_decoder) {
     throwError(messageType, "decoder is already initialized");
   }
-  return Module({ locateFile: () => wasm }).then((m) => {
+  Module.locateFile = () => wasm;
+  return Module({ "locateFile": () => wasm }).then((m) => {
     _decoder = m;
     
     let path;
@@ -150,13 +153,21 @@ function decodeAudio(messageType, start = 0, duration = -1, options = {}) {
   const decodeOptions = {
     multiChannel: options.multiChannel ?? false,
   };
+  if (_streamContext && globalThis.wasmAudioStreams) {
+    const stream = globalThis.wasmAudioStreams.get(_streamContext);
+    if (stream) {
+      stream.position = 0;
+    }
+  }
   const path = _streamContext ? `stream:${_streamContext}` : _decoder_memfs_path;
   const {
     status: { status, error },
     samples: vector,
   } = _decoder.decodeAudio(path, start, duration, decodeOptions);
   if (status < 0) {
-    vector.delete();
+    if (vector && typeof vector.delete === "function") {
+      vector.delete();
+    }
     throw `decodeAudioData error: ${error}`;
   }
   const samples = new Float32Array(vector.size());

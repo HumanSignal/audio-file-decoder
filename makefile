@@ -36,7 +36,7 @@ CC            := em++
 COMMON_CCFLAG := \
 	-Wall \
 	-O3 \
-	--closure 1 \
+	--closure 0 \
 	--no-entry \
 	-fno-exceptions \
 	-s WASM=1 \
@@ -45,6 +45,7 @@ COMMON_CCFLAG := \
 	-s MALLOC=emmalloc \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s EXPORTED_RUNTIME_METHODS=['FS'] \
+	-s INCOMING_MODULE_JS_API=['locateFile'] \
 	--bind
 CCFLAG        := \
 	$(COMMON_CCFLAG) \

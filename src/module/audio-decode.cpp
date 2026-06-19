@@ -95,7 +95,7 @@ EM_JS(int, js_read_packet, (void* opaque, uint8_t* buf, int buf_size), {
   if (!stream) return -1;
   const bytes = stream.readSync(buf_size);
   if (!bytes || bytes.length === 0) return 0;
-  Module.HEAPU8.set(bytes, buf);
+  HEAPU8.set(bytes, buf);
   return bytes.length;
 });
 

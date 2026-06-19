@@ -121,7 +121,7 @@ function getAudioDecoderWorker(
           fileData,
           streamConfig,
         },
-        fileData ? [fileData] : []
+        (fileData instanceof ArrayBuffer) ? [fileData] : []
       );
     };
 
