@@ -33,10 +33,18 @@ LIBMP3LAME_TARGET      := $(foreach target, $(LIBMP3LAME_TARGET_NAME), $(FFMPEG_
 
 # compiler flags
 CC            := em++
+
+DEBUG ?= 0
+ifeq ($(DEBUG), 1)
+  OPT_FLAGS := -g -O0
+else
+  OPT_FLAGS := -O3 -DNDEBUG
+endif
+
 COMMON_CCFLAG := \
 	-Wall \
-	-O3 \
-	--closure 1 \
+	$(OPT_FLAGS) \
+	--closure 0 \
 	--no-entry \
 	-fno-exceptions \
 	-s WASM=1 \
@@ -45,6 +53,7 @@ COMMON_CCFLAG := \
 	-s MALLOC=emmalloc \
 	-s ALLOW_MEMORY_GROWTH=1 \
 	-s EXPORTED_RUNTIME_METHODS=['FS'] \
+	-s INCOMING_MODULE_JS_API=['locateFile'] \
 	--bind
 CCFLAG        := \
 	$(COMMON_CCFLAG) \

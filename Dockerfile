@@ -149,7 +149,7 @@ RUN npm ci
 FROM stage_npm_deps AS stage_ffmpeg_sync
 
 # Copy Makefile and source needed for syncing
-COPY Makefile ./
+COPY makefile ./
 
 # Sync FFmpeg and dependencies
 RUN npm run sync

@@ -1,26 +1,165 @@
+/* global FileReaderSync, Module, globalThis */
 const _decoder_memfs_path = "audio";
 let _decoder = undefined;
+let _streamContext = null;
+
+class WasmAudioStreamReader {
+  constructor(config) {
+    this.url = config.url;
+    this.fileOrBlob = config.fileOrBlob;
+    this.size = config.size;
+    this.position = 0;
+    this.lastError = null;
+    
+    if (this.fileOrBlob) {
+      this.readerSync = new FileReaderSync();
+    } else if (this.url) {
+      this.buffer = null; // Uint8Array of cached bytes
+      this.bufferStart = -1; // Starting byte offset of the buffer in the file
+    }
+  }
+
+  getSize() {
+    return this.size;
+  }
+
+  seek(offset, whence) {
+    const seekMode = whence & 0xf;
+    let newPosition = this.position;
+    if (seekMode === 0) {
+      newPosition = offset;
+    } else if (seekMode === 1) {
+      newPosition = this.position + offset;
+    } else if (seekMode === 2) {
+      newPosition = this.size + offset;
+    }
+    
+    if (newPosition < 0) newPosition = 0;
+    if (newPosition > this.size) newPosition = this.size;
+    
+    this.position = newPosition;
+    return this.position;
+  }
+
+  readSync(bufSize) {
+    if (this.position >= this.size) {
+      return null;
+    }
+    
+    const bytesToRead = Math.min(bufSize, this.size - this.position);
+    if (bytesToRead <= 0) {
+      return null;
+    }
+    
+    let chunk;
+    if (this.fileOrBlob) {
+      const slice = this.fileOrBlob.slice(this.position, this.position + bytesToRead);
+      try {
+        const arrayBuffer = this.readerSync.readAsArrayBuffer(slice);
+        chunk = new Uint8Array(arrayBuffer);
+      } catch (err) {
+        console.error("FileReaderSync error:", err);
+        return null;
+      }
+    } else if (this.url) {
+      const cacheSize = 2 * 1024 * 1024; // 2 MB buffer size
+      
+      // Check if the requested range is fully within our current buffer
+      if (
+        this.buffer &&
+        this.position >= this.bufferStart &&
+        this.position + bytesToRead <= this.bufferStart + this.buffer.length
+      ) {
+        const offset = this.position - this.bufferStart;
+        chunk = this.buffer.subarray(offset, offset + bytesToRead);
+      } else {
+        // Not in buffer, or buffer is empty. Fetch a new chunk from network.
+        const fetchSize = Math.max(cacheSize, bytesToRead);
+        const start = this.position;
+        const end = Math.min(this.position + fetchSize - 1, this.size - 1);
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", this.url, false);
+        xhr.responseType = "arraybuffer";
+        xhr.setRequestHeader("Range", `bytes=${start}-${end}`);
+        
+        try {
+          xhr.send();
+          if (xhr.status === 200 || xhr.status === 206) {
+            const responseBytes = new Uint8Array(xhr.response);
+            if (xhr.status === 200) {
+              this.buffer = responseBytes;
+              this.bufferStart = 0;
+              chunk = this.buffer.subarray(this.position, this.position + bytesToRead);
+            } else {
+              this.buffer = responseBytes;
+              this.bufferStart = start;
+              chunk = this.buffer.subarray(0, bytesToRead);
+            }
+          } else {
+            console.error(`Sync XHR failed with status ${xhr.status}`);
+            if (xhr.status === 403 || xhr.status === 401) {
+              this.lastError = xhr.status;
+            }
+            return null;
+          }
+        } catch (err) {
+          console.error("Sync XHR error:", err);
+          return null;
+        }
+      }
+    }
+    
+    if (chunk) {
+      this.position += chunk.length;
+    }
+    return chunk;
+  }
+}
 
 function throwError(type, error) {
   throw new Error(`${type}: ${error}`);
 }
 
-function initializeDecoder(messageType, wasm, fileData) {
+function initializeDecoder(messageType, wasm, fileData, streamConfig) {
   if (_decoder) {
     throwError(messageType, "decoder is already initialized");
   }
-  return Module({ locateFile: () => wasm }).then((m) => {
+  Module.locateFile = () => wasm;
+  return Module({ "locateFile": () => wasm }).then((m) => {
     _decoder = m;
-    _decoder.FS.writeFile(_decoder_memfs_path, new Int8Array(fileData));
+    
+    let path;
+    if (streamConfig) {
+      const reader = new WasmAudioStreamReader(streamConfig);
+      const opaque = _decoder.createStreamContext();
+      
+      globalThis.wasmAudioStreams = globalThis.wasmAudioStreams || new Map();
+      globalThis.wasmAudioStreams.set(opaque, reader);
+      _streamContext = opaque;
+      
+      path = `stream:${opaque}`;
+    } else {
+      _decoder.FS.writeFile(_decoder_memfs_path, new Int8Array(fileData));
+      path = _decoder_memfs_path;
+    }
+    
     const {
       status: { status, error },
       sampleRate,
       channelCount,
       encoding,
       duration,
-    } = _decoder.getProperties(_decoder_memfs_path);
+    } = _decoder.getProperties(path);
+    
     if (status < 0) {
-      _decoder.FS.unlink(_decoder_memfs_path);
+      if (streamConfig) {
+        globalThis.wasmAudioStreams.delete(_streamContext);
+        _decoder.destroyStreamContext(_streamContext);
+        _streamContext = null;
+      } else {
+        _decoder.FS.unlink(_decoder_memfs_path);
+      }
       throwError(messageType, error);
     }
     return {
@@ -39,19 +178,39 @@ function decodeAudio(messageType, start = 0, duration = -1, options = {}) {
   const decodeOptions = {
     multiChannel: options.multiChannel ?? false,
   };
+  
+  let stream = null;
+  if (_streamContext && globalThis.wasmAudioStreams) {
+    stream = globalThis.wasmAudioStreams.get(_streamContext);
+    if (stream) {
+      stream.position = 0;
+      stream.lastError = null;
+    }
+  }
+  
+  const path = _streamContext ? `stream:${_streamContext}` : _decoder_memfs_path;
   const {
     status: { status, error },
     samples: vector,
-  } = _decoder.decodeAudio(_decoder_memfs_path, start, duration, decodeOptions);
+  } = _decoder.decodeAudio(path, start, duration, decodeOptions);
+  
+  if (stream && stream.lastError) {
+    if (vector && typeof vector.delete === "function") {
+      vector.delete();
+    }
+    throw new Error(`HTTP_STATUS_${stream.lastError}`);
+  }
+
   if (status < 0) {
-    vector.delete();
+    if (vector && typeof vector.delete === "function") {
+      vector.delete();
+    }
     throw `decodeAudioData error: ${error}`;
   }
   const samples = new Float32Array(vector.size());
   for (let i = 0; i < samples.length; i++) {
     samples[i] = vector.get(i);
   }
-  // embind C++ wrapper objects must be deleted
   vector.delete();
   return samples;
 }
@@ -60,8 +219,8 @@ onmessage = function (e) {
   const { type } = e.data;
   switch (type) {
     case "initialize": {
-      const { wasm, fileData } = e.data;
-      initializeDecoder(type, wasm, fileData)
+      const { wasm, fileData, streamConfig } = e.data;
+      initializeDecoder(type, wasm, fileData, streamConfig)
         .then(({ sampleRate, channelCount, encoding, duration }) =>
           postMessage({ type, sampleRate, channelCount, encoding, duration })
         )
@@ -74,14 +233,31 @@ onmessage = function (e) {
         const samples = decodeAudio(type, start, duration, options);
         postMessage({ type, id, samples: samples.buffer }, [samples.buffer]);
       } catch (err) {
-        // need to return the id of the failed decode request, so use custom message instead of throwing error
-        postMessage({ type: "decodeError", id, error: err });
+        postMessage({ type: "decodeError", id, error: err.message || err });
+      }
+      break;
+    }
+    case "updateUrl": {
+      const { url } = e.data;
+      if (_streamContext && globalThis.wasmAudioStreams) {
+        const stream = globalThis.wasmAudioStreams.get(_streamContext);
+        if (stream) {
+          stream.url = url;
+          stream.buffer = null;
+          stream.bufferStart = -1;
+        }
       }
       break;
     }
     case "dispose":
       if (_decoder) {
-        _decoder.FS.unlink(_decoder_memfs_path);
+        if (_streamContext) {
+          globalThis.wasmAudioStreams.delete(_streamContext);
+          _decoder.destroyStreamContext(_streamContext);
+          _streamContext = null;
+        } else {
+          _decoder.FS.unlink(_decoder_memfs_path);
+        }
       }
       break;
     default:

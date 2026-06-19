@@ -8,6 +8,13 @@ interface DecodeAudioOptions {
   multiChannel?: boolean;
 }
 
+interface WasmAudioStreamConfig {
+  url?: string;
+  fileOrBlob?: Blob; // Using Blob covers File too
+  size: number;
+}
+
 export {
   DecodeAudioOptions,
+  WasmAudioStreamConfig,
 }

@@ -1,143 +1,180 @@
-# audio-file-decoder
-[![npm version](https://img.shields.io/npm/v/audio-file-decoder.svg)](https://npmjs.org/package/audio-file-decoder "View this project on npm")
+# @humansignal/audio-file-decoder
 
-## About
-A library for decoding audio files, including support for decoding specific timestamp ranges within files. Written with FFmpeg and compiled to WebAssembly via Emscripten. Intended for use in browser environments only.
+[![npm version](https://img.shields.io/npm/v/@humansignal/audio-file-decoder.svg)](https://npmjs.org/package/@humansignal/audio-file-decoder "View this project on npm")
 
-The following audio file formats are supported:
-* MP3
-* WAV
-* FLAC
-* AAC/M4A
-* OGG
+A high-performance library for decoding audio files and timestamp ranges in browser environments. Powered by FFmpeg and compiled to WebAssembly via Emscripten.
 
-### Why?
-[WebAudio](https://developer.mozilla.org/en-US/docs/Web/API/BaseAudioContext/decodeAudioData) currently provides `decodeAudioData` as a means to access raw samples from audio files in a faster than realtime manner. It only supports decoding entire audio files however which can take *huge* amounts of memory. For example, a 10 minute audio file with a sample rate of 44100 Hz, floating point samples, and stereo channels will occupy 44100 Hz * 600 seconds * 4 bytes * 2 channels = ~212 MB of memory when decoded.
+---
 
-The [WebCodecs](https://github.com/WICG/web-codecs) proposal is planning to address this oversight (see [here](https://github.com/WICG/web-codecs/issues/28) for more info) but until adoption by browsers this can be used as a more memory-friendly alternative to WebAudio's current implementation.
+## Key Features
 
-### Caveats/Notes
-* Files still need be stored in memory for access since the filesystem is sandboxed.
-* Multiple channels are automatically downmixed into a single channel via sample averaging. Decoded audio is also **NOT** resampled, whereas `decodeAudioData` will automatically resample to the sample rate of its `AudioContext`.
-* Sample position accuracy may be slightly off when decoding timestamp ranges due to timestamp precision and how FFmpeg's seek behaves. FFmpeg tries to seek to the closest frame possible for timestamps which may introduce an error of a few frames, where each frame contains a fixed (e.g 1024 samples) or dynamic number of samples depending on the audio file encoding.
-* Performance is about ~2x slower than Chromium's implementation of `decodeAudioData`. Chromium's implementation also uses FFmpeg for decoding, but is able to run natively with threading and native optimizations enabled, while this library has them disabled for WebAssembly compatibility.
+- **Standard Decoding**: Decodes entire audio files or specific timestamp ranges synchronously or asynchronously (via Web Workers).
+- **Streaming Mode**: Built to handle extremely large audio files (e.g., >24 hours) by dynamically requesting byte ranges over the network without buffering the entire file in memory.
+- **2MB Range Cache**: Minimizes network overhead in streaming mode by batch-fetching 2MB chunks and satisfying subsequent decodes from memory.
+- **PTS-Aligned Sample Accuracy**: Leverages frame Presentation Timestamps (PTS) to guarantee sample-accurate waveform alignment, automatically padding gaps or discarding offsets.
+- **Multi-Channel Support**: Supports returning interleaved multi-channel samples or auto-downmixing to mono.
+- **Dynamic URL Refreshing**: Automatically handles expiring presigned URLs (e.g., AWS S3, GCS) by allowing hot-swapping of the stream URL in-flight without interrupting active decoders.
+- **Production Optimized**: Statically built with Emscripten `-O3` and `-DNDEBUG` optimizations to suppress debug prints and reduce the worker bundle size by **30%**.
+
+---
+
+## Supported Formats
+
+- **MP3** (via `libmp3lame`)
+- **WAV** (PCM 8/16/24/32-bit, Float 32-bit)
+- **FLAC**
+- **AAC / M4A**
+- **OGG / Vorbis / Opus** (via `libopus`)
+
+---
+
+## Installation
+
+```bash
+npm install @humansignal/audio-file-decoder
+```
+
+---
 
 ## Usage / API
-### Getting Started
-```bash
-npm install --save audio-file-decoder
-```
 
-### Synchronous Decoding
-An example of synchronous audio file decoding in ES6:
+### 1. Standard Synchronous Decoder
+Loads the entire file array buffer into WebAssembly memory. Useful for quick synchronous operations on smaller files.
+
 ```ts
-import { getAudioDecoder } from 'audio-file-decoder';
-import DecodeAudioWasm from 'audio-file-decoder/decode-audio.wasm'; // path to wasm asset
+import { getAudioDecoder } from '@humansignal/audio-file-decoder';
+import decodeWasmUrl from '@humansignal/audio-file-decoder/decode-audio.wasm?url';
 
-// either a File object or an ArrayBuffer representing the audio file
-const fileOrArrayBuffer = ...;
+const fileOrArrayBuffer = await fetch('audio.mp3').then(r => r.arrayBuffer());
 
-getAudioDecoder(DecodeAudioWasm, fileOrArrayBuffer)
-  .then(decoder => {
-    const sampleRate = decoder.sampleRate; // the sample rate of the audio file (e.g 44100)
-    const channelCount = decoder.channelCount; // the number of channels in the audio file (e.g 2 if stereo)
-    const encoding = decoder.encoding; // the encoding of the audio file as a string (e.g pcm_s16le)
-    const duration = decoder.duration; // the duration of the audio file in seconds (e.g 5.43)
+const decoder = await getAudioDecoder(decodeWasmUrl, fileOrArrayBuffer);
 
-    // samples are returned as a Float32Array
-    let samples;
+console.log({
+  sampleRate: decoder.sampleRate,
+  channelCount: decoder.channelCount,
+  encoding: decoder.encoding,
+  duration: decoder.duration // In seconds
+});
 
-    // decode entire audio file
-    samples = decoder.decodeAudioData();
+// Decode the first 10 seconds (returns interleaved Float32Array)
+const samples = decoder.decodeAudioData(0, 10, { multiChannel: true });
 
-    // decode from 5.5 seconds to the end of the file
-    samples = decoder.decodeAudioData(5.5, -1);
-
-    // decode from 30 seconds for a duration of 60 seconds
-    samples = decoder.decodeAudioData(30, 60);
-
-    // decode with options
-    const options: DecodeAudioOptions = {
-      multiChannel: true,
-    };
-    samples = decoder.decodeAudioData(0, -1, options);
-
-    // ALWAYS dispose once finished to free resources
-    decoder.dispose();
-  });
+// Always dispose to free WASM heap resources
+decoder.dispose();
 ```
 
-### Asynchronous Decoding
-An example of asynchronous audio file decoding in ES6:
+---
+
+### 2. Asynchronous Worker Decoder (Standard)
+Runs the decoder inside a background Web Worker, keeping the main UI thread completely responsive.
+
 ```ts
-import { getAudioDecoderWorker } from 'audio-file-decoder';
-import DecodeAudioWasm from 'audio-file-decoder/decode-audio.wasm'; // path to wasm asset
+import { getAudioDecoderWorker } from '@humansignal/audio-file-decoder';
+import decodeWasmUrl from '@humansignal/audio-file-decoder/decode-audio.wasm?url';
 
-// either a File object or an ArrayBuffer representing the audio file
-const fileOrArrayBuffer = ...;
+const worker = await getAudioDecoderWorker(decodeWasmUrl, audioFileBlob, { stream: false });
 
-let audioDecoder;
-getAudioDecoderWorker(DecodeAudioWasm, fileOrArrayBuffer)
-  .then(decoder => {
-    const sampleRate = decoder.sampleRate; // the sample rate of the audio file (e.g 44100)
-    const channelCount = decoder.channelCount; // the number of channels in the audio file (e.g 2 if stereo)
-    const encoding = decoder.encoding; // the encoding of the audio file as a string (e.g pcm_s16le)
-    const duration = decoder.duration; // the duration of the audio file in seconds (e.g 5.43)
+// Decode a 30-second range asynchronously
+const samples = await worker.decodeAudioData(60, 30, { multiChannel: false });
 
-    audioDecoder = decoder;
-
-    const options: DecodeAudioOptions = {
-      multiChannel: false,
-    };
-
-    // decode from 15 seconds for a duration of 45 seconds, with options
-    return decoder.getAudioData(15, 45, options);
-  })
-  .then(samples => {
-    // samples are returned as a Float32Array
-    console.log(samples);
-
-    // ALWAYS dispose once finished to free resources
-    audioDecoder.dispose();
-  });
+worker.dispose();
 ```
 
-### Additional Options
-You can pass additional options when decoding audio data. Currently supported options are listed below:
+---
+
+### 3. Asynchronous Worker Decoder (Streaming Mode)
+Enables streaming chunk retrieval for large files. Instead of loading the full file, it uses HTTP `Range` requests in the worker.
+
+```ts
+import { getAudioDecoderWorker } from '@humansignal/audio-file-decoder';
+import decodeWasmUrl from '@humansignal/audio-file-decoder/decode-audio.wasm?url';
+
+// Passes a URL instead of a file/buffer to automatically enable streaming
+const worker = await getAudioDecoderWorker(decodeWasmUrl, 'https://example.com/long-podcast.mp3', {
+  stream: true
+});
+
+// Decodes a slice. The worker only downloads the bytes needed for this range.
+const samples = await worker.decodeAudioData(3600, 10);
+```
+
+---
+
+### 4. Dynamic URL Refreshing (Presigned URL Expiration)
+When loading files from S3 or proxy redirectors, signed URLs expire. The worker will propagate an `HTTP_STATUS_403` or `HTTP_STATUS_401` error which can be caught in the main thread to refresh the URL dynamically.
+
+```ts
+import { getAudioDecoderWorker } from '@humansignal/audio-file-decoder';
+import decodeWasmUrl from '@humansignal/audio-file-decoder/decode-audio.wasm?url';
+
+const originalUrl = '/api/media/redirect-to-s3';
+
+const worker = await getAudioDecoderWorker(decodeWasmUrl, originalUrl, { stream: true });
+
+async function safeDecode(start: number, duration: number) {
+  try {
+    return await worker.decodeAudioData(start, duration);
+  } catch (err: any) {
+    const isExpired = err?.message?.includes("HTTP_STATUS_403") || err?.message?.includes("HTTP_STATUS_401");
+    
+    if (isExpired) {
+      console.warn("Presigned URL expired. Refreshing...");
+      
+      // Fetch the redirect URL again to get a fresh presigned URL
+      const response = await fetch(originalUrl);
+      if (response.body) {
+        response.body.cancel().catch(() => {});
+      }
+      const freshPresignedUrl = response.url;
+      
+      // Push the fresh URL to the worker in-place
+      worker.updateUrl(freshPresignedUrl);
+      
+      // Retry the decode request
+      return await worker.decodeAudioData(start, duration);
+    }
+    throw err;
+  }
+}
+```
+
+---
+
+## Configuration Options
+
+### `DecodeAudioOptions`
+Passed to `decodeAudioData`:
 ```ts
 interface DecodeAudioOptions {
-  // whether to decode multiple channels. defaults to false.
-  // if set to true, the resulting array will contain samples interleaved from each channel.
-  // - using the channel count, samples can be accessed using samples[sample * channelCount + channel]
-  // if set to false, the resulting will contain downmixed samples averaged from each channel.
-  // - samples can be accessed using samples[sample]
+  // Whether to preserve multiple channels.
+  // - If true: returns interleaved samples: [L0, R0, L1, R1, ...]
+  // - If false (default): downmixes to mono by averaging all channel samples
   multiChannel?: boolean;
 }
 ```
 
-### Importing WASM Assets
-
-The `getAudioDecoder` and `getAudioDecoderWorker` factory functions expect a path to the WASM file. The package includes the WASM file at `audio-file-decoder/decode-audio.wasm` which can be imported directly.
-
-#### Modern Bundlers (Vite, Webpack 5+, etc.)
-
-With modern bundlers that support WASM imports, you can import the WASM file directly:
-
+### `WasmAudioStreamConfig`
+Can be passed to `getAudioDecoderWorker` as the source parameter instead of a string to provide advanced details:
 ```ts
-import { getAudioDecoder, getAudioDecoderWorker } from 'audio-file-decoder';
-import DecodeAudioWasm from 'audio-file-decoder/decode-audio.wasm';
-
-// The bundler will handle the WASM file automatically
-getAudioDecoder(DecodeAudioWasm, myAudioFile);
-getAudioDecoderWorker(DecodeAudioWasm, myAudioFile);
+interface WasmAudioStreamConfig {
+  url?: string;         // The stream URL
+  fileOrBlob?: Blob;    // Local file handle (falls back to local FileReaderSync streaming)
+  size: number;         // Total size of the file in bytes (avoids initial fetch)
+}
 ```
 
-**Vite:** Works out of the box with `?url` suffix:
+---
+
+## Bundler Integration
+
+### Vite
+Import the WASM file with the `?url` query suffix:
 ```ts
-import DecodeAudioWasm from 'audio-file-decoder/decode-audio.wasm?url';
+import decodeWasmUrl from '@humansignal/audio-file-decoder/decode-audio.wasm?url';
 ```
 
-**Webpack 5+:** Configure in `webpack.config.js`:
+### Webpack 5
+Enable WebAssembly experiments in your `webpack.config.js`:
 ```js
 module.exports = {
   experiments: {
@@ -154,82 +191,50 @@ module.exports = {
 };
 ```
 
-#### Manual Copy (No Bundler)
+---
 
-If not using a bundler, copy the WASM file from the package to your public directory:
+## Local Development & Contribution
+
+### 1. Build Requirements
+- Docker (recommended for containerized building)
+- Or, local Emscripten SDK (v2.0.1) and PKG_CONFIG dependencies.
+
+### 2. Building WASM & JS
+To compile the C++ FFmpeg code and package the Javascript bundles:
 
 ```bash
-# The WASM file is located at:
-cp node_modules/audio-file-decoder/dist/decode-audio.wasm public/
+# Build the WebAssembly binaries and JS bundles inside Docker (handles Emscripten)
+./docker-build.sh quick
 
-# Your app structure:
-public/
-  index.html
-  decode-audio.wasm
+# Extract the compiled artifacts to the local ./dist folder
+./docker-build.sh artifacts
 ```
 
-Then pass the relative path:
-```ts
-import { getAudioDecoder } from 'audio-file-decoder';
+### 3. Local Development Integration (`bun link` / `npm link`)
+To test edits instantly in a local consuming project (e.g. `hs-platform`) without manually copying files:
 
-// Pass the relative path from your app's origin
-getAudioDecoder('/decode-audio.wasm', myAudioFile);
-```
+1. Register this package globally:
+   ```bash
+   # Inside /code/audio-file-decoder
+   bun link
+   ```
+2. Link it in your consumer project:
+   ```bash
+   # Inside the web app folder of your project
+   bun link @humansignal/audio-file-decoder
+   ```
+3. Now, whenever you run `./docker-build.sh quick`, the changes will immediately reflect in the consumer app.
 
-## Building
-The build steps below have been tested on Ubuntu 20.04.1 LTS.
+### 4. Build Configuration (Debug vs. Release)
+By default, builds compile in optimized **Release** mode (`-O3 -DNDEBUG`), removing debug symbols and removing console log overhead.
 
-First clone the repo, then navigate to the repo directory and run the following commands:
+If you need to debug the C++ core or Web Worker:
 ```bash
-# install necessary build tools
-sudo apt-get update -qq
-sudo apt-get install -y autoconf automake build-essential cmake git pkg-config wget libtool
-
-# grab emscripten sdk which is needed to compile ffmpeg
-# built with emsdk 3.0.0 (upgrade at your own risk!)
-git clone https://github.com/emscripten-core/emsdk.git
-./emsdk/emsdk install 3.0.0
-./emsdk/emsdk activate 3.0.0
-
-# set emscripten environment variables
-# this needs to be invoked when you start a new terminal
-source ./emsdk/emsdk_env.sh
-
-# install npm deps, sync/download ffmpeg + deps, then build ffmpeg
-# will only need to be run once unless you plan on making changes to how ffmpeg/dependencies are compiled
-npm install && npm run sync && npm run build-deps
-
-# build the wasm module and the library
-# basic workflow when making changes to the wasm module/js library
-npm run build-wasm && npm run build
+# Compile a debug build with -g and -O0
+DEBUG=1 ./docker-build.sh quick
 ```
 
-Commands for the WebAssembly module, which can be useful if modifying or extending the C++ wrapper around FFmpeg:
-```bash
-# build the WebAssembly module - output is located at src/wasm
-npm run build-wasm
-
-# removes the wasm output
-npm run clean-wasm
-```
-
-Commands for FFmpeg and dependencies, which can be useful if modifying the compilation of FFmpeg and its dependencies:
-```bash
-# downloads FFmpeg and its dependencies - output is located at deps/src
-npm run sync
-
-# removes FFmpeg and its dependencies 
-npm run unsync
-
-# builds FFmpeg and its dependencies - output is located at deps/dist/ffmpeg
-npm run build-deps
-
-# cleans the FFmpeg dist output
-npm run clean-deps
-```
-
-## Contributing
-Contributions are welcome! Feel free to submit issues or PRs for any bugs or feature requests.
+---
 
 ## License
-Licensed under LGPL v2.1 or later. See the [license file](./LICENSE) for more info.
+Licensed under LGPL v2.1 or later. See the [LICENSE](./LICENSE) file for details.
