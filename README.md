@@ -230,12 +230,6 @@ To easily iterate on this library without having to manually copy built files to
    ```
    The consuming application will automatically use the updated build from the linked symlink.
 
-4. **Cache Invalidation**: Vite caches dependencies in `node_modules/.vite`. After rebuilds, clear the dev server's cache in the consumer to ensure it picks up the latest code:
-   ```bash
-   # In the consumer web directories
-   rm -rf node_modules/.vite
-   ```
-
 Commands for the WebAssembly module, which can be useful if modifying or extending the C++ wrapper around FFmpeg:
 ```bash
 # build the WebAssembly module - output is located at src/wasm
