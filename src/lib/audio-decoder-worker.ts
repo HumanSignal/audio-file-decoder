@@ -32,28 +32,29 @@ function dataURIToBlob(dataURI: string): Blob {
   return new Blob([ab], { type: mimeString });
 }
 
-function getUrlContentLength(url: string): Promise<number> {
-  return fetch(url, { method: "HEAD" })
-    .then((response) => {
-      const len = response.headers.get("content-length");
-      if (len) return parseInt(len, 10);
-      throw new Error("No content-length header");
-    })
-    .catch(() => {
-      // Fallback to GET with Range: bytes=0-0
-      return fetch(url, { headers: { Range: "bytes=0-0" } }).then((response) => {
-        const contentRange = response.headers.get("content-range");
-        if (contentRange) {
-          const parts = contentRange.split("/");
-          if (parts.length === 2) {
-            return parseInt(parts[1], 10);
-          }
-        }
-        const len = response.headers.get("content-length");
-        if (len) return parseInt(len, 10);
-        throw new Error("Unable to determine audio file size for streaming");
+function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: string }> {
+  return fetch(url).then((response) => {
+    if (!response.ok) {
+      throw new Error(`GET request failed with status: ${response.status}`);
+    }
+    const len = response.headers.get("content-length");
+    let size = 0;
+    if (len) {
+      size = parseInt(len, 10);
+    }
+    
+    // Cancel the body stream immediately to prevent downloading the file content
+    if (response.body) {
+      response.body.cancel().catch(() => {
+        // ignore errors on cancel
       });
-    });
+    }
+    
+    if (size > 0) {
+      return { size, finalUrl: response.url };
+    }
+    throw new Error("Unable to determine audio file size for streaming");
+  });
 }
 
 /**
@@ -143,8 +144,8 @@ function getAudioDecoderWorker(
         initWorker(undefined, source as WasmAudioStreamConfig);
       } else if (isUrl) {
         getUrlContentLength(source as string)
-          .then((size) => {
-            initWorker(undefined, { url: source as string, size });
+          .then(({ size, finalUrl }) => {
+            initWorker(undefined, { url: finalUrl, size });
           })
           .catch((err) => reject(err));
       } else if (source instanceof Blob) {

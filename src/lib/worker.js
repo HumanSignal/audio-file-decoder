@@ -12,6 +12,9 @@ class WasmAudioStreamReader {
     
     if (this.fileOrBlob) {
       this.readerSync = new FileReaderSync();
+    } else if (this.url) {
+      this.buffer = null; // Uint8Array of cached bytes
+      this.bufferStart = -1; // Starting byte offset of the buffer in the file
     }
   }
 
@@ -58,30 +61,48 @@ class WasmAudioStreamReader {
         return null;
       }
     } else if (this.url) {
-      const xhr = new XMLHttpRequest();
-      xhr.open("GET", this.url, false);
-      xhr.responseType = "arraybuffer";
+      const cacheSize = 2 * 1024 * 1024; // 2 MB buffer size
       
-      const start = this.position;
-      const end = this.position + bytesToRead - 1;
-      xhr.setRequestHeader("Range", `bytes=${start}-${end}`);
-      
-      try {
-        xhr.send();
-        if (xhr.status === 200 || xhr.status === 206) {
-          let responseBytes = new Uint8Array(xhr.response);
-          if (xhr.status === 200) {
-            chunk = responseBytes.subarray(this.position, this.position + bytesToRead);
+      // Check if the requested range is fully within our current buffer
+      if (
+        this.buffer &&
+        this.position >= this.bufferStart &&
+        this.position + bytesToRead <= this.bufferStart + this.buffer.length
+      ) {
+        const offset = this.position - this.bufferStart;
+        chunk = this.buffer.subarray(offset, offset + bytesToRead);
+      } else {
+        // Not in buffer, or buffer is empty. Fetch a new chunk from network.
+        const fetchSize = Math.max(cacheSize, bytesToRead);
+        const start = this.position;
+        const end = Math.min(this.position + fetchSize - 1, this.size - 1);
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", this.url, false);
+        xhr.responseType = "arraybuffer";
+        xhr.setRequestHeader("Range", `bytes=${start}-${end}`);
+        
+        try {
+          xhr.send();
+          if (xhr.status === 200 || xhr.status === 206) {
+            const responseBytes = new Uint8Array(xhr.response);
+            if (xhr.status === 200) {
+              this.buffer = responseBytes;
+              this.bufferStart = 0;
+              chunk = this.buffer.subarray(this.position, this.position + bytesToRead);
+            } else {
+              this.buffer = responseBytes;
+              this.bufferStart = start;
+              chunk = this.buffer.subarray(0, bytesToRead);
+            }
           } else {
-            chunk = responseBytes;
+            console.error(`Sync XHR failed with status ${xhr.status}`);
+            return null;
           }
-        } else {
-          console.error(`Sync XHR failed with status ${xhr.status}`);
+        } catch (err) {
+          console.error("Sync XHR error:", err);
           return null;
         }
-      } catch (err) {
-        console.error("Sync XHR error:", err);
-        return null;
       }
     }
     
