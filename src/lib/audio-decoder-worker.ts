@@ -33,7 +33,11 @@ function dataURIToBlob(dataURI: string): Blob {
 }
 
 function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: string }> {
-  return fetch(url).then((response) => {
+  return fetch(url, {
+    headers: {
+      Range: "bytes=0-0",
+    },
+  }).then((response) => {
     if (!response.ok) {
       throw new Error(`GET request failed with status: ${response.status}`);
     }
