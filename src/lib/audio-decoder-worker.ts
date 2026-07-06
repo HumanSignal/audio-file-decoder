@@ -41,9 +41,18 @@ function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: str
     if (!response.ok) {
       throw new Error(`GET request failed with status: ${response.status}`);
     }
+    const contentRange = response.headers.get("content-range");
     const len = response.headers.get("content-length");
     let size = 0;
-    if (len) {
+
+    if (contentRange) {
+      const match = contentRange.match(/\/(\d+)$/);
+      if (match) {
+        size = parseInt(match[1], 10);
+      }
+    }
+
+    if (size <= 0 && len) {
       size = parseInt(len, 10);
     }
     
