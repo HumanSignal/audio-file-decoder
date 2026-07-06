@@ -33,27 +33,13 @@ function dataURIToBlob(dataURI: string): Blob {
 }
 
 function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: string }> {
-  // Try fetching with Range: bytes=0-0 first to optimize bandwidth
-  return fetch(url, {
-    headers: {
-      Range: "bytes=0-0",
-    },
-  }).then((response) => {
+  return fetch(url).then((response) => {
     if (!response.ok) {
       throw new Error(`GET request failed with status: ${response.status}`);
     }
-    const contentRange = response.headers.get("content-range");
     const len = response.headers.get("content-length");
     let size = 0;
-
-    if (contentRange) {
-      const match = contentRange.match(/\/(\d+)$/);
-      if (match) {
-        size = parseInt(match[1], 10);
-      }
-    }
-
-    if (size <= 0 && len) {
+    if (len) {
       size = parseInt(len, 10);
     }
     
@@ -64,34 +50,10 @@ function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: str
       });
     }
     
-    if (size > 1) {
+    if (size > 0) {
       return { size, finalUrl: response.url };
     }
-
-    // Fallback: If Content-Range is not exposed via CORS and size is 1 or less,
-    // we must perform a standard GET request to read the safelisted Content-Length.
-    // We immediately call cancel() on the response body to close the connection/stream, which limits the data fetched to only the headers
-    // and the tiny amount of data already in flight in the TCP window (typically <200KB).
-    console.warn("getUrlContentLength: Content-Range header not accessible via CORS. Falling back to standard GET with immediate body cancellation.");
-    return fetch(url).then((fallbackResponse) => {
-      if (!fallbackResponse.ok) {
-        throw new Error(`GET fallback failed with status: ${fallbackResponse.status}`);
-      }
-      const fallbackLen = fallbackResponse.headers.get("content-length");
-      let fallbackSize = 0;
-      if (fallbackLen) {
-        fallbackSize = parseInt(fallbackLen, 10);
-      }
-
-      if (fallbackResponse.body) {
-        fallbackResponse.body.cancel().catch(() => { /* ignore */ });
-      }
-
-      if (fallbackSize > 0) {
-        return { size: fallbackSize, finalUrl: fallbackResponse.url };
-      }
-      throw new Error("Unable to determine audio file size for streaming");
-    });
+    throw new Error("Unable to determine audio file size for streaming");
   });
 }
 
