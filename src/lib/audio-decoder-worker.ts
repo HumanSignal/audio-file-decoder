@@ -69,21 +69,26 @@ function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: str
     }
 
     // Fallback: If Content-Range is not exposed via CORS and size is 1 or less,
-    // make a lightweight HEAD request directly to the final S3/GCS URL.
-    // S3/GCS permits HEAD on GET-presigned URLs, which retrieves the headers (including safelisted Content-Length) without a body.
-    console.warn("getUrlContentLength: Content-Range header not accessible via CORS. Falling back to HEAD request on final URL to retrieve size.");
-    return fetch(response.url, { method: "HEAD" }).then((headResponse) => {
-      if (!headResponse.ok) {
-        throw new Error(`HEAD fallback failed with status: ${headResponse.status}`);
+    // we must perform a standard GET request to read the safelisted Content-Length.
+    // We immediately call cancel() on the response body to close the connection/stream, which limits the data fetched to only the headers
+    // and the tiny amount of data already in flight in the TCP window (typically <200KB).
+    console.warn("getUrlContentLength: Content-Range header not accessible via CORS. Falling back to standard GET with immediate body cancellation.");
+    return fetch(url).then((fallbackResponse) => {
+      if (!fallbackResponse.ok) {
+        throw new Error(`GET fallback failed with status: ${fallbackResponse.status}`);
       }
-      const headLen = headResponse.headers.get("content-length");
-      let headSize = 0;
-      if (headLen) {
-        headSize = parseInt(headLen, 10);
+      const fallbackLen = fallbackResponse.headers.get("content-length");
+      let fallbackSize = 0;
+      if (fallbackLen) {
+        fallbackSize = parseInt(fallbackLen, 10);
       }
 
-      if (headSize > 0) {
-        return { size: headSize, finalUrl: response.url };
+      if (fallbackResponse.body) {
+        fallbackResponse.body.cancel().catch(() => { /* ignore */ });
+      }
+
+      if (fallbackSize > 0) {
+        return { size: fallbackSize, finalUrl: fallbackResponse.url };
       }
       throw new Error("Unable to determine audio file size for streaming");
     });
