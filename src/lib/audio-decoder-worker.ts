@@ -33,6 +33,7 @@ function dataURIToBlob(dataURI: string): Blob {
 }
 
 function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: string }> {
+  // Try fetching with Range: bytes=0-0 first to optimize bandwidth
   return fetch(url, {
     headers: {
       Range: "bytes=0-0",
@@ -63,10 +64,32 @@ function getUrlContentLength(url: string): Promise<{ size: number; finalUrl: str
       });
     }
     
-    if (size > 0) {
+    if (size > 1) {
       return { size, finalUrl: response.url };
     }
-    throw new Error("Unable to determine audio file size for streaming");
+
+    // Fallback: If Content-Range is not exposed via CORS and size is 1 or less,
+    // fall back to a standard GET request to read the safelisted Content-Length.
+    console.warn("getUrlContentLength: Content-Range header not accessible via CORS. Falling back to standard GET to retrieve size.");
+    return fetch(url).then((fallbackResponse) => {
+      if (!fallbackResponse.ok) {
+        throw new Error(`GET fallback failed with status: ${fallbackResponse.status}`);
+      }
+      const fallbackLen = fallbackResponse.headers.get("content-length");
+      let fallbackSize = 0;
+      if (fallbackLen) {
+        fallbackSize = parseInt(fallbackLen, 10);
+      }
+
+      if (fallbackResponse.body) {
+        fallbackResponse.body.cancel().catch(() => { /* ignore */ });
+      }
+
+      if (fallbackSize > 0) {
+        return { size: fallbackSize, finalUrl: fallbackResponse.url };
+      }
+      throw new Error("Unable to determine audio file size for streaming");
+    });
   });
 }
 
