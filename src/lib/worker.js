@@ -243,8 +243,6 @@ onmessage = function (e) {
         const stream = globalThis.wasmAudioStreams.get(_streamContext);
         if (stream) {
           stream.url = url;
-          stream.buffer = null;
-          stream.bufferStart = -1;
         }
       }
       break;

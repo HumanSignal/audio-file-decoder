@@ -120,8 +120,13 @@ async function safeDecode(start: number, duration: number) {
     if (isExpired) {
       console.warn("Presigned URL expired. Refreshing...");
       
-      // Fetch the redirect URL again to get a fresh presigned URL
-      const response = await fetch(originalUrl);
+      // Fetch the redirect URL again to get a fresh presigned URL (bypass cache and use Range: bytes=0-0 to avoid body transfer)
+      const response = await fetch(originalUrl, {
+        cache: "no-store",
+        headers: {
+          Range: "bytes=0-0",
+        },
+      });
       if (response.body) {
         response.body.cancel().catch(() => {});
       }
